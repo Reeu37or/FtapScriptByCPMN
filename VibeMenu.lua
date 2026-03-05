@@ -410,6 +410,24 @@ local function makeIconHitbox(p)
 	end
 end
 
+local function makeIconAimbot(p)
+	local f=Instance.new("Frame",p); f.Size=UDim2.new(1,0,1,0); f.BackgroundTransparency=1
+	-- Прицел: внешний круг + 4 линии + точка по центру
+	local outer=Instance.new("Frame",f); outer.Size=UDim2.new(0,20,0,20); outer.Position=UDim2.new(0.5,-10,0.5,-12)
+	outer.BackgroundTransparency=1; outer.BorderSizePixel=0
+	local os=Instance.new("UIStroke",outer); os.Color=Color3.fromRGB(255,255,255); os.Thickness=1.5
+	Instance.new("UICorner",outer).CornerRadius=UDim.new(1,0)
+	-- 4 линии крест
+	local function line(sx,sy,px,py)
+		local l=Instance.new("Frame",f); l.Size=UDim2.new(0,sx,0,sy); l.Position=UDim2.new(0.5,px,0.5,py-12)
+		l.BackgroundColor3=Color3.fromRGB(255,255,255); l.BorderSizePixel=0
+	end
+	line(6,1,-13,-0); line(6,1,7,0); line(1,6,-0,-13); line(1,6,0,7)
+	-- центр точка
+	local dot=Instance.new("Frame",f); dot.Size=UDim2.new(0,4,0,4); dot.Position=UDim2.new(0.5,-2,0.5,-14)
+	dot.BackgroundColor3=Color3.fromRGB(255,80,80); dot.BorderSizePixel=0; Instance.new("UICorner",dot).CornerRadius=UDim.new(1,0)
+end
+
 -- SIDEBAR КНОПКИ
 local TIF = TweenInfo.new(0.14,Enum.EasingStyle.Quad)
 
@@ -440,9 +458,10 @@ local btnShader   = makeSideBtn(makeIconShader,  424)
 local btnParticle = makeSideBtn(makeIconParticle,476)
 local btnHVH      = makeSideBtn(makeIconHVH,     528)
 local btnHitbox   = makeSideBtn(makeIconHitbox,  580)
+local btnAimbot   = makeSideBtn(makeIconAimbot,  632)
 
-local allBtns = {btnSky,btnAnim,btnLocker,btnSkyC,btnTools,btnSpeed,btnEsp,btnNoclip,btnShader,btnParticle,btnHVH,btnHitbox}
-sideScroll.CanvasSize = UDim2.new(0,0,0,640)
+local allBtns = {btnSky,btnAnim,btnLocker,btnSkyC,btnTools,btnSpeed,btnEsp,btnNoclip,btnShader,btnParticle,btnHVH,btnHitbox,btnAimbot}
+sideScroll.CanvasSize = UDim2.new(0,0,0,692)
 
 -- КОМПОНЕНТЫ
 local function clearContent()
@@ -1209,6 +1228,19 @@ end
 --   HVH
 -- ══════════════════════════════
 
+-- ══════════════════════════════
+--   AIMBOT СОСТОЯНИЯ
+-- ══════════════════════════════
+local aimbotActive    = false
+local aimbotMode      = "hold"   -- "hold" / "toggle" / "always"
+local aimbotTarget    = "Head"   -- "Head" / "HumanoidRootPart" / "nearest"
+local aimbotSmooth    = 0.18     -- 0.0 = мгновенно, 1.0 = очень плавно
+local aimbotFOV       = 120      -- радиус захвата в пикселях
+local aimbotConn      = nil
+local aimbotLocked    = false
+local aimbotShowFOV   = true
+local aimbotFovCircle = nil
+
 local flyV2Active   = false
 local flyV2Conn     = nil
 local flyV2BV       = nil
@@ -1568,6 +1600,308 @@ local function buildHitboxPage()
 end
 
 -- ══════════════════════════════
+--   AIMBOT
+-- ══════════════════════════════
+
+-- ══════════════════════════════
+--   AIMBOT — FOV CIRCLE
+-- ══════════════════════════════
+
+-- FOV-круг на экране (Drawing API)
+local fovCircle = nil
+local fovCircleLocked = nil  -- второй круг когда захвачена цель
+
+local function createFovCircles()
+	-- Основной круг FOV (белый пунктир)
+	if Drawing then
+		pcall(function()
+			fovCircle = Drawing.new("Circle")
+			fovCircle.Visible    = false
+			fovCircle.Radius     = aimbotFOV
+			fovCircle.Color      = Color3.fromRGB(255,255,255)
+			fovCircle.Thickness  = 1.5
+			fovCircle.Filled     = false
+			fovCircle.NumSides   = 64
+			fovCircle.Transparency = 0.5
+
+			fovCircleLocked = Drawing.new("Circle")
+			fovCircleLocked.Visible    = false
+			fovCircleLocked.Radius     = 6
+			fovCircleLocked.Color      = Color3.fromRGB(255,60,60)
+			fovCircleLocked.Thickness  = 2
+			fovCircleLocked.Filled     = false
+			fovCircleLocked.NumSides   = 32
+			fovCircleLocked.Transparency = 0
+		end)
+	end
+end
+
+local function removeFovCircles()
+	pcall(function() if fovCircle then fovCircle:Remove() end end)
+	pcall(function() if fovCircleLocked then fovCircleLocked:Remove() end end)
+	fovCircle = nil; fovCircleLocked = nil
+end
+
+local function getAimbotTarget()
+	local bestPlayer = nil
+	local bestDist   = aimbotFOV
+	local vpSize     = camera.ViewportSize
+	local cx,cy      = vpSize.X/2, vpSize.Y/2
+
+	for _,p in ipairs(Players:GetPlayers()) do
+		if p == player then continue end
+		if not p.Character then continue end
+		local hum = p.Character:FindFirstChildOfClass("Humanoid")
+		if not hum or hum.Health <= 0 then continue end
+
+		local head = p.Character:FindFirstChild("Head")
+		if not head then continue end
+
+		local spos, onScreen = camera:WorldToViewportPoint(head.Position)
+		if not onScreen then continue end
+
+		local dist = math.sqrt((spos.X - cx)^2 + (spos.Y - cy)^2)
+		if dist < bestDist then
+			bestDist   = dist
+			bestPlayer = {p = p, head = head, spos = spos, dist = dist}
+		end
+	end
+	return bestPlayer
+end
+
+local function startAimbot()
+	if aimbotConn then aimbotConn:Disconnect() end
+	createFovCircles()
+
+	aimbotConn = RunService.RenderStepped:Connect(function()
+		if not aimbotActive then return end
+
+		local vpSize = camera.ViewportSize
+		local cx, cy = vpSize.X/2, vpSize.Y/2
+
+		-- Обновляем позицию FOV-круга по центру экрана
+		pcall(function()
+			if fovCircle then
+				fovCircle.Position = Vector2.new(cx, cy)
+				fovCircle.Radius   = aimbotFOV
+				fovCircle.Visible  = true
+			end
+		end)
+
+		local target = getAimbotTarget()
+
+		if target then
+			-- Цель в круге — показываем красный кружок на голове
+			pcall(function()
+				if fovCircleLocked then
+					fovCircleLocked.Position = Vector2.new(target.spos.X, target.spos.Y)
+					fovCircleLocked.Visible  = true
+					-- Цвет круга меняется в зависимости от дистанции
+					fovCircleLocked.Color = target.dist < aimbotFOV * 0.3
+						and Color3.fromRGB(255,50,50)
+						or  Color3.fromRGB(255,160,0)
+				end
+			end)
+
+			-- Плавно ведём камеру на голову
+			local targetCF = CFrame.new(camera.CFrame.Position, target.head.Position)
+			-- lerp: чем больше smooth тем медленнее (0% = мгновенно, 100% = очень плавно)
+			local speed = 1 - aimbotSmooth * 0.95
+			camera.CFrame = camera.CFrame:Lerp(targetCF, speed)
+		else
+			pcall(function()
+				if fovCircleLocked then fovCircleLocked.Visible = false end
+			end)
+		end
+	end)
+end
+
+local function stopAimbot()
+	if aimbotConn then aimbotConn:Disconnect(); aimbotConn = nil end
+	removeFovCircles()
+end
+
+local function buildAimbotPage()
+	clearContent(); contentArea.CanvasSize = UDim2.new(0,0,0,480)
+	hdr(contentArea,"AIMBOT","FOV-круг → цель в круге → держит голову",14); divLine(contentArea,55)
+
+	-- ── ГЛАВНЫЙ ТОГГЛ ──
+	local statusLbl = Instance.new("TextLabel",contentArea)
+	statusLbl.Size=UDim2.new(1,-28,0,14); statusLbl.Position=UDim2.new(0,14,0,128)
+	statusLbl.BackgroundTransparency=1
+	statusLbl.Text = aimbotActive and "● АКТИВЕН — смотри на игрока в круге" or "○ Выключен"
+	statusLbl.TextColor3 = aimbotActive and Color3.fromRGB(255,80,80) or Color3.fromRGB(60,60,60)
+	statusLbl.TextSize=11; statusLbl.Font=Enum.Font.GothamSemibold; statusLbl.TextXAlignment=Enum.TextXAlignment.Left
+
+	makeToggleCard(contentArea,"Aimbot (Head)","Держит камеру на голове в FOV-круге",64,aimbotActive,function(v)
+		aimbotActive = v
+		if v then
+			startAimbot()
+			statusLbl.Text = "● АКТИВЕН — смотри на игрока в круге"
+			statusLbl.TextColor3 = Color3.fromRGB(255,80,80)
+		else
+			stopAimbot()
+			statusLbl.Text = "○ Выключен"
+			statusLbl.TextColor3 = Color3.fromRGB(60,60,60)
+		end
+	end)
+
+	divLine(contentArea,148)
+
+	-- ── РАЗМЕР FOV-КРУГА ──
+	local fovSectLbl = Instance.new("TextLabel",contentArea)
+	fovSectLbl.Size=UDim2.new(1,-28,0,16); fovSectLbl.Position=UDim2.new(0,14,0,158)
+	fovSectLbl.BackgroundTransparency=1; fovSectLbl.Text="РАЗМЕР FOV-КРУГА"
+	fovSectLbl.TextColor3=Color3.fromRGB(60,60,60); fovSectLbl.TextSize=10
+	fovSectLbl.Font=Enum.Font.GothamBold; fovSectLbl.TextXAlignment=Enum.TextXAlignment.Left
+
+	local fovCard = Instance.new("Frame",contentArea)
+	fovCard.Size=UDim2.new(1,-28,0,56); fovCard.Position=UDim2.new(0,14,0,178)
+	fovCard.BackgroundColor3=Color3.fromRGB(14,14,14); fovCard.BorderSizePixel=0
+	Instance.new("UICorner",fovCard).CornerRadius=UDim.new(0,10)
+	Instance.new("UIStroke",fovCard).Color=Color3.fromRGB(30,30,30)
+
+	local fovTL = Instance.new("TextLabel",fovCard)
+	fovTL.Size=UDim2.new(1,-80,0,18); fovTL.Position=UDim2.new(0,12,0,8)
+	fovTL.BackgroundTransparency=1; fovTL.Text="Радиус круга"
+	fovTL.TextColor3=Color3.fromRGB(200,200,200); fovTL.TextSize=13; fovTL.Font=Enum.Font.GothamSemibold; fovTL.TextXAlignment=Enum.TextXAlignment.Left
+
+	local fovValL = Instance.new("TextLabel",fovCard)
+	fovValL.Size=UDim2.new(0,60,0,18); fovValL.Position=UDim2.new(1,-70,0,8)
+	fovValL.BackgroundTransparency=1; fovValL.Text=tostring(aimbotFOV).." px"
+	fovValL.TextColor3=Color3.fromRGB(255,255,255); fovValL.TextSize=13; fovValL.Font=Enum.Font.GothamBold; fovValL.TextXAlignment=Enum.TextXAlignment.Right
+
+	local fovTrack = Instance.new("Frame",fovCard)
+	fovTrack.Size=UDim2.new(1,-24,0,6); fovTrack.Position=UDim2.new(0,12,0,40)
+	fovTrack.BackgroundColor3=Color3.fromRGB(36,36,36); fovTrack.BorderSizePixel=0
+	Instance.new("UICorner",fovTrack).CornerRadius=UDim.new(1,0)
+
+	local fovR = (aimbotFOV-20)/(400-20)
+	local fovFill = Instance.new("Frame",fovTrack)
+	fovFill.Size=UDim2.new(fovR,0,1,0); fovFill.BackgroundColor3=Color3.fromRGB(255,80,80); fovFill.BorderSizePixel=0
+	Instance.new("UICorner",fovFill).CornerRadius=UDim.new(1,0)
+
+	local fovHandle = Instance.new("TextButton",fovTrack)
+	fovHandle.Size=UDim2.new(0,16,0,16); fovHandle.Position=UDim2.new(fovR,-8,0.5,-8)
+	fovHandle.BackgroundColor3=Color3.fromRGB(255,80,80); fovHandle.BorderSizePixel=0
+	fovHandle.Text=""; fovHandle.AutoButtonColor=false; fovHandle.ZIndex=5
+	Instance.new("UICorner",fovHandle).CornerRadius=UDim.new(1,0)
+
+	local fovDrag = false
+	fovHandle.MouseButton1Down:Connect(function() fovDrag=true end)
+	UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then fovDrag=false end end)
+	UserInputService.InputChanged:Connect(function(i)
+		if fovDrag and i.UserInputType==Enum.UserInputType.MouseMovement then
+			local rel = math.clamp((i.Position.X - fovTrack.AbsolutePosition.X)/fovTrack.AbsoluteSize.X,0,1)
+			aimbotFOV = math.floor(20 + rel*(400-20))
+			fovFill.Size=UDim2.new(rel,0,1,0); fovHandle.Position=UDim2.new(rel,-8,0.5,-8)
+			fovValL.Text = tostring(aimbotFOV).." px"
+			-- Обновляем живой круг
+			pcall(function() if fovCircle then fovCircle.Radius = aimbotFOV end end)
+		end
+	end)
+
+	-- Быстрые пресеты размера
+	local fovPresets = {{60,"Малый"},{120,"Средний"},{200,"Большой"},{350,"Огромный"}}
+	for i,fp in ipairs(fovPresets) do
+		local pb=Instance.new("TextButton",contentArea)
+		pb.Size=UDim2.new(0,118,0,34); pb.Position=UDim2.new(0,14+(i-1)%2*136,0,244+math.floor((i-1)/2)*42)
+		pb.BackgroundColor3=Color3.fromRGB(16,16,16); pb.BorderSizePixel=0
+		pb.Text=fp[2].." ("..fp[1]..")"; pb.TextColor3=Color3.fromRGB(190,190,190)
+		pb.TextSize=12; pb.Font=Enum.Font.GothamSemibold; pb.AutoButtonColor=false
+		Instance.new("UICorner",pb).CornerRadius=UDim.new(0,9)
+		Instance.new("UIStroke",pb).Color=Color3.fromRGB(30,30,30)
+		pb.MouseButton1Click:Connect(function()
+			aimbotFOV=fp[1]
+			local rel=(fp[1]-20)/(400-20)
+			fovFill.Size=UDim2.new(math.clamp(rel,0,1),0,1,0)
+			fovHandle.Position=UDim2.new(math.clamp(rel,0,1),-8,0.5,-8)
+			fovValL.Text=tostring(fp[1]).." px"
+			pcall(function() if fovCircle then fovCircle.Radius=fp[1] end end)
+		end)
+		pb.MouseEnter:Connect(function() TweenService:Create(pb,TIF,{BackgroundColor3=Color3.fromRGB(26,26,26)}):Play() end)
+		pb.MouseLeave:Connect(function() TweenService:Create(pb,TIF,{BackgroundColor3=Color3.fromRGB(16,16,16)}):Play() end)
+	end
+
+	divLine(contentArea,336)
+
+	-- ── ПЛАВНОСТЬ ──
+	local smLbl = Instance.new("TextLabel",contentArea)
+	smLbl.Size=UDim2.new(1,-28,0,16); smLbl.Position=UDim2.new(0,14,0,346)
+	smLbl.BackgroundTransparency=1; smLbl.Text="ПЛАВНОСТЬ НАВЕДЕНИЯ"
+	smLbl.TextColor3=Color3.fromRGB(60,60,60); smLbl.TextSize=10; smLbl.Font=Enum.Font.GothamBold; smLbl.TextXAlignment=Enum.TextXAlignment.Left
+
+	local smCard = Instance.new("Frame",contentArea)
+	smCard.Size=UDim2.new(1,-28,0,56); smCard.Position=UDim2.new(0,14,0,366)
+	smCard.BackgroundColor3=Color3.fromRGB(14,14,14); smCard.BorderSizePixel=0
+	Instance.new("UICorner",smCard).CornerRadius=UDim.new(0,10)
+	Instance.new("UIStroke",smCard).Color=Color3.fromRGB(30,30,30)
+
+	local smTL = Instance.new("TextLabel",smCard)
+	smTL.Size=UDim2.new(1,-80,0,18); smTL.Position=UDim2.new(0,12,0,8)
+	smTL.BackgroundTransparency=1; smTL.Text="Smoothness"
+	smTL.TextColor3=Color3.fromRGB(200,200,200); smTL.TextSize=13; smTL.Font=Enum.Font.GothamSemibold; smTL.TextXAlignment=Enum.TextXAlignment.Left
+
+	local smValL = Instance.new("TextLabel",smCard)
+	smValL.Size=UDim2.new(0,60,0,18); smValL.Position=UDim2.new(1,-70,0,8)
+	smValL.BackgroundTransparency=1; smValL.Text=tostring(math.floor(aimbotSmooth*100)).."%"
+	smValL.TextColor3=Color3.fromRGB(255,255,255); smValL.TextSize=13; smValL.Font=Enum.Font.GothamBold; smValL.TextXAlignment=Enum.TextXAlignment.Right
+
+	local smHint = Instance.new("TextLabel",smCard)
+	smHint.Size=UDim2.new(0.5,0,0,14); smHint.Position=UDim2.new(0,12,0,28)
+	smHint.BackgroundTransparency=1; smHint.Text="0% = моментально"
+	smHint.TextColor3=Color3.fromRGB(50,50,50); smHint.TextSize=10; smHint.Font=Enum.Font.Gotham; smHint.TextXAlignment=Enum.TextXAlignment.Left
+
+	local smTrack = Instance.new("Frame",smCard)
+	smTrack.Size=UDim2.new(1,-24,0,6); smTrack.Position=UDim2.new(0,12,0,40)
+	smTrack.BackgroundColor3=Color3.fromRGB(36,36,36); smTrack.BorderSizePixel=0
+	Instance.new("UICorner",smTrack).CornerRadius=UDim.new(1,0)
+
+	local smR = aimbotSmooth
+	local smFill = Instance.new("Frame",smTrack)
+	smFill.Size=UDim2.new(smR,0,1,0); smFill.BackgroundColor3=Color3.fromRGB(255,80,80); smFill.BorderSizePixel=0
+	Instance.new("UICorner",smFill).CornerRadius=UDim.new(1,0)
+
+	local smHandle = Instance.new("TextButton",smTrack)
+	smHandle.Size=UDim2.new(0,16,0,16); smHandle.Position=UDim2.new(smR,-8,0.5,-8)
+	smHandle.BackgroundColor3=Color3.fromRGB(255,80,80); smHandle.BorderSizePixel=0
+	smHandle.Text=""; smHandle.AutoButtonColor=false; smHandle.ZIndex=5
+	Instance.new("UICorner",smHandle).CornerRadius=UDim.new(1,0)
+
+	local smDrag=false
+	smHandle.MouseButton1Down:Connect(function() smDrag=true end)
+	UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then smDrag=false end end)
+	UserInputService.InputChanged:Connect(function(i)
+		if smDrag and i.UserInputType==Enum.UserInputType.MouseMovement then
+			local rel=math.clamp((i.Position.X-smTrack.AbsolutePosition.X)/smTrack.AbsoluteSize.X,0,1)
+			aimbotSmooth=rel; smFill.Size=UDim2.new(rel,0,1,0); smHandle.Position=UDim2.new(rel,-8,0.5,-8)
+			smValL.Text=tostring(math.floor(rel*100)).."%"
+		end
+	end)
+
+	-- Быстрые пресеты плавности
+	local smPresets = {{0,"Instant"},{0.3,"Низкая"},{0.6,"Средняя"},{0.85,"Высокая"}}
+	for i,sp in ipairs(smPresets) do
+		local pb=Instance.new("TextButton",contentArea)
+		pb.Size=UDim2.new(0,118,0,34); pb.Position=UDim2.new(0,14+(i-1)%2*136,0,432+math.floor((i-1)/2)*42)
+		pb.BackgroundColor3=Color3.fromRGB(16,16,16); pb.BorderSizePixel=0
+		pb.Text=sp[2]; pb.TextColor3=Color3.fromRGB(190,190,190)
+		pb.TextSize=12; pb.Font=Enum.Font.GothamSemibold; pb.AutoButtonColor=false
+		Instance.new("UICorner",pb).CornerRadius=UDim.new(0,9)
+		Instance.new("UIStroke",pb).Color=Color3.fromRGB(30,30,30)
+		pb.MouseButton1Click:Connect(function()
+			aimbotSmooth=sp[1]
+			smFill.Size=UDim2.new(sp[1],0,1,0); smHandle.Position=UDim2.new(sp[1],-8,0.5,-8)
+			smValL.Text=tostring(math.floor(sp[1]*100)).."%"
+		end)
+		pb.MouseEnter:Connect(function() TweenService:Create(pb,TIF,{BackgroundColor3=Color3.fromRGB(26,26,26)}):Play() end)
+		pb.MouseLeave:Connect(function() TweenService:Create(pb,TIF,{BackgroundColor3=Color3.fromRGB(16,16,16)}):Play() end)
+	end
+
+	contentArea.CanvasSize = UDim2.new(0,0,0,432+math.ceil(4/2)*42+16)
+end
+
+-- ══════════════════════════════
 --   ВЫБОР ВКЛАДКИ
 -- ══════════════════════════════
 
@@ -1599,6 +1933,7 @@ btnShader.MouseButton1Click:Connect(function()   selectTab(btnShader,   buildSha
 btnParticle.MouseButton1Click:Connect(function() selectTab(btnParticle, buildParticlePage) end)
 btnHVH.MouseButton1Click:Connect(function()      selectTab(btnHVH,      buildHVHPage) end)
 btnHitbox.MouseButton1Click:Connect(function()   selectTab(btnHitbox,   buildHitboxPage) end)
+btnAimbot.MouseButton1Click:Connect(function()   selectTab(btnAimbot,   buildAimbotPage) end)
 
 selectTab(btnSky, buildSkyPage)
 
