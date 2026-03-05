@@ -45,10 +45,10 @@ screenGui.Name = "VibeMenu"; screenGui.ResetOnSpawn = false
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.IgnoreGuiInset = true; screenGui.Parent = player.PlayerGui
 
--- ГЛАВНЫЙ ФРЕЙМ
+-- ГЛАВНЫЙ ФРЕЙМ (пол экрана)
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0,720,0,560)
-mainFrame.Position = UDim2.new(0.5,-360,0.5,-280)
+mainFrame.Size = UDim2.new(0.55,0,0.78,0)
+mainFrame.Position = UDim2.new(0.225,0,0.11,0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(6,6,6)
 mainFrame.BackgroundTransparency = 0.06
 mainFrame.BorderSizePixel = 0; mainFrame.Visible = false
@@ -242,6 +242,33 @@ local function makeIconParticle(p)
 	end
 end
 
+local function makeIconHVH(p)
+	local f=Instance.new("Frame",p); f.Size=UDim2.new(1,0,1,0); f.BackgroundTransparency=1
+	-- Два скрещенных меча (символ HVH)
+	local function sword(rot)
+		local blade=Instance.new("Frame",f); blade.Size=UDim2.new(0,3,0,20); blade.AnchorPoint=Vector2.new(0.5,0.5); blade.Position=UDim2.new(0.5,0,0.5,0); blade.BackgroundColor3=Color3.fromRGB(255,255,255); blade.BorderSizePixel=0; blade.Rotation=rot
+		Instance.new("UICorner",blade).CornerRadius=UDim.new(0,1)
+		local guard=Instance.new("Frame",f); guard.Size=UDim2.new(0,10,0,2); guard.AnchorPoint=Vector2.new(0.5,0.5); guard.Position=UDim2.new(0.5,0,0.5,4); guard.BackgroundColor3=Color3.fromRGB(255,255,255); guard.BorderSizePixel=0; guard.Rotation=rot
+		Instance.new("UICorner",guard).CornerRadius=UDim.new(1,0)
+	end
+	sword(-35); sword(35)
+end
+local function makeIconHitbox(p)
+	local f=Instance.new("Frame",p); f.Size=UDim2.new(1,0,1,0); f.BackgroundTransparency=1
+	-- Фигурка в рамке хитбокса
+	local box=Instance.new("Frame",f); box.Size=UDim2.new(0,22,0,26); box.Position=UDim2.new(0.5,-11,0,1); box.BackgroundTransparency=1; box.BorderSizePixel=0
+	local bs=Instance.new("UIStroke",box); bs.Color=Color3.fromRGB(255,255,255); bs.Thickness=1.5; bs.Transparency=0.3
+	Instance.new("UICorner",box).CornerRadius=UDim.new(0,4)
+	-- голова внутри
+	local head=Instance.new("Frame",f); head.Size=UDim2.new(0,7,0,7); head.Position=UDim2.new(0.5,-3,0,3); head.BackgroundColor3=Color3.fromRGB(255,255,255); head.BorderSizePixel=0; Instance.new("UICorner",head).CornerRadius=UDim.new(1,0)
+	-- тело
+	local body=Instance.new("Frame",f); body.Size=UDim2.new(0,3,0,8); body.Position=UDim2.new(0.5,-1,0,11); body.BackgroundColor3=Color3.fromRGB(255,255,255); body.BorderSizePixel=0
+	-- размерные стрелки по бокам
+	for _,side in ipairs({-13,12}) do
+		local arr=Instance.new("Frame",f); arr.Size=UDim2.new(0,2,0,10); arr.Position=UDim2.new(0.5,side,0,8); arr.BackgroundColor3=Color3.fromRGB(255,255,255); arr.BackgroundTransparency=0.5; arr.BorderSizePixel=0
+	end
+end
+
 -- SIDEBAR КНОПКИ
 local TIF = TweenInfo.new(0.14,Enum.EasingStyle.Quad)
 
@@ -270,9 +297,11 @@ local btnEsp      = makeSideBtn(makeIconEsp,     320)
 local btnNoclip   = makeSideBtn(makeIconNoclip,  372)
 local btnShader   = makeSideBtn(makeIconShader,  424)
 local btnParticle = makeSideBtn(makeIconParticle,476)
+local btnHVH      = makeSideBtn(makeIconHVH,     528)
+local btnHitbox   = makeSideBtn(makeIconHitbox,  580)
 
-local allBtns = {btnSky,btnAnim,btnLocker,btnSkyC,btnTools,btnSpeed,btnEsp,btnNoclip,btnShader,btnParticle}
-sideScroll.CanvasSize = UDim2.new(0,0,0,530)
+local allBtns = {btnSky,btnAnim,btnLocker,btnSkyC,btnTools,btnSpeed,btnEsp,btnNoclip,btnShader,btnParticle,btnHVH,btnHitbox}
+sideScroll.CanvasSize = UDim2.new(0,0,0,640)
 
 -- КОМПОНЕНТЫ
 local function clearContent()
@@ -505,13 +534,7 @@ local function buildLockerPage()
 	hl.BackgroundTransparency=1; hl.Text="Когда тебя бросают — нажми T.\nГасит горизонтальную скорость,\nтело падает медленно и ровно вниз."
 	hl.TextColor3=Color3.fromRGB(58,58,58); hl.TextSize=12; hl.Font=Enum.Font.Gotham
 	hl.TextWrapped=true; hl.TextXAlignment=Enum.TextXAlignment.Left; hl.TextYAlignment=Enum.TextYAlignment.Top
-	-- T клавиша
-	UserInputService.InputBegan:Connect(function(inp,gpe)
-		if gpe then return end
-		if inp.KeyCode==Enum.KeyCode.T then
-			lockerActive=not lockerActive; setLocker(lockerActive); updStatus(lockerActive)
-		end
-	end)
+	-- T клавиша обрабатывается глобально через polling внизу скрипта
 end
 
 local function buildSkyChangerPage()
@@ -1042,6 +1065,365 @@ local function buildParticlePage()
 end
 
 -- ══════════════════════════════
+--   HVH
+-- ══════════════════════════════
+
+local flyV2Active   = false
+local flyV2Conn     = nil
+local flyV2BV       = nil
+local flyV2Speed    = 60
+local bhopActive    = false
+local bhopConn      = nil
+local bhopSpeed     = 60
+
+local function buildHVHPage()
+	clearContent(); contentArea.CanvasSize=UDim2.new(0,0,0,580)
+	hdr(contentArea,"HVH","FlyV2, Bhop, Tab Spammer",14); divLine(contentArea,55)
+
+	-- ── FLY V2 ──
+	local flyLbl=Instance.new("TextLabel",contentArea); flyLbl.Size=UDim2.new(1,-28,0,16); flyLbl.Position=UDim2.new(0,14,0,64)
+	flyLbl.BackgroundTransparency=1; flyLbl.Text="FLY V2  (обходит антифлай)"; flyLbl.TextColor3=Color3.fromRGB(60,60,60); flyLbl.TextSize=10; flyLbl.Font=Enum.Font.GothamBold; flyLbl.TextXAlignment=Enum.TextXAlignment.Left
+
+	-- Слайдер скорости флая
+	local flySpeedLbl=Instance.new("TextLabel",contentArea); flySpeedLbl.Size=UDim2.new(1,-28,0,14); flySpeedLbl.Position=UDim2.new(0,14,0,84)
+	flySpeedLbl.BackgroundTransparency=1; flySpeedLbl.Text="Скорость: "..flyV2Speed; flySpeedLbl.TextColor3=Color3.fromRGB(100,100,100); flySpeedLbl.TextSize=11; flySpeedLbl.Font=Enum.Font.Gotham; flySpeedLbl.TextXAlignment=Enum.TextXAlignment.Left
+
+	local flyTrack=Instance.new("Frame",contentArea); flyTrack.Size=UDim2.new(1,-28,0,6); flyTrack.Position=UDim2.new(0,14,0,102)
+	flyTrack.BackgroundColor3=Color3.fromRGB(36,36,36); flyTrack.BorderSizePixel=0; Instance.new("UICorner",flyTrack).CornerRadius=UDim.new(1,0)
+	local flyR=(flyV2Speed-10)/(200-10)
+	local flyFill=Instance.new("Frame",flyTrack); flyFill.Size=UDim2.new(flyR,0,1,0); flyFill.BackgroundColor3=Color3.fromRGB(255,255,255); flyFill.BorderSizePixel=0; Instance.new("UICorner",flyFill).CornerRadius=UDim.new(1,0)
+	local flyHandle=Instance.new("TextButton",flyTrack); flyHandle.Size=UDim2.new(0,16,0,16); flyHandle.Position=UDim2.new(flyR,-8,0.5,-8)
+	flyHandle.BackgroundColor3=Color3.fromRGB(255,255,255); flyHandle.BorderSizePixel=0; flyHandle.Text=""; flyHandle.AutoButtonColor=false; flyHandle.ZIndex=5
+	Instance.new("UICorner",flyHandle).CornerRadius=UDim.new(1,0)
+	local flyDrag=false
+	flyHandle.MouseButton1Down:Connect(function() flyDrag=true end)
+	UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then flyDrag=false end end)
+	UserInputService.InputChanged:Connect(function(i)
+		if flyDrag and i.UserInputType==Enum.UserInputType.MouseMovement then
+			local rel=math.clamp((i.Position.X-flyTrack.AbsolutePosition.X)/flyTrack.AbsoluteSize.X,0,1)
+			flyV2Speed=math.floor(10+rel*(200-10)); flyFill.Size=UDim2.new(rel,0,1,0); flyHandle.Position=UDim2.new(rel,-8,0.5,-8)
+			flySpeedLbl.Text="Скорость: "..flyV2Speed
+		end
+	end)
+
+	-- Функция флая V2 — через BodyVelocity + постоянный сброс Humanoid.WalkSpeed=0
+	-- Обходит антифлай: перемещается небольшими шагами вместо резкого телепорта
+	local function startFlyV2()
+		flyV2Active=true
+		local char=player.Character; if not char then return end
+		local hrp=char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+		local hum=char:FindFirstChildOfClass("Humanoid"); if not hum then return end
+		hum.WalkSpeed=0; hum.JumpPower=0
+		flyV2BV=Instance.new("BodyVelocity",hrp)
+		flyV2BV.MaxForce=Vector3.new(math.huge,math.huge,math.huge)
+		flyV2BV.Velocity=Vector3.new(0,0,0)
+		local bg=Instance.new("BodyGyro",hrp); bg.Name="FlyV2Gyro"
+		bg.MaxTorque=Vector3.new(math.huge,math.huge,math.huge); bg.D=100; bg.P=1000
+		flyV2Conn=RunService.RenderStepped:Connect(function()
+			if not flyV2Active then return end
+			local char2=player.Character; if not char2 then return end
+			local hrp2=char2:FindFirstChild("HumanoidRootPart"); if not hrp2 then return end
+			local gyro=hrp2:FindFirstChild("FlyV2Gyro")
+			-- Направление камеры
+			local camCF=camera.CFrame
+			local vel=Vector3.new(0,0,0)
+			local spd=flyV2Speed
+			if UserInputService:IsKeyDown(Enum.KeyCode.W) then vel=vel+camCF.LookVector*spd end
+			if UserInputService:IsKeyDown(Enum.KeyCode.S) then vel=vel-camCF.LookVector*spd end
+			if UserInputService:IsKeyDown(Enum.KeyCode.A) then vel=vel-camCF.RightVector*spd end
+			if UserInputService:IsKeyDown(Enum.KeyCode.D) then vel=vel+camCF.RightVector*spd end
+			if UserInputService:IsKeyDown(Enum.KeyCode.Space) then vel=vel+Vector3.new(0,spd*0.6,0) end
+			if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then vel=vel-Vector3.new(0,spd*0.6,0) end
+			if flyV2BV and flyV2BV.Parent then flyV2BV.Velocity=vel end
+			if gyro then gyro.CFrame=camCF end
+			-- Антивфлай: небольшие микро-шаги вниз имитируют нормальную физику
+			if vel.Magnitude<1 then
+				if flyV2BV and flyV2BV.Parent then flyV2BV.Velocity=Vector3.new(0,-0.5,0) end
+			end
+		end)
+	end
+	local function stopFlyV2()
+		flyV2Active=false
+		if flyV2Conn then flyV2Conn:Disconnect(); flyV2Conn=nil end
+		local char=player.Character; if not char then return end
+		local hrp=char:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			if flyV2BV and flyV2BV.Parent then flyV2BV:Destroy(); flyV2BV=nil end
+			local gyro=hrp:FindFirstChild("FlyV2Gyro"); if gyro then gyro:Destroy() end
+		end
+		local hum=char and char:FindFirstChildOfClass("Humanoid")
+		if hum then hum.WalkSpeed=16; hum.JumpPower=50 end
+	end
+
+	makeToggleCard(contentArea,"FlyV2","WASD+Space+Ctrl — обходит антифлай",120,flyV2Active,function(v)
+		if v then startFlyV2() else stopFlyV2() end
+	end)
+
+	divLine(contentArea,180)
+
+	-- ── BHOP ──
+	local bhopLbl=Instance.new("TextLabel",contentArea); bhopLbl.Size=UDim2.new(1,-28,0,16); bhopLbl.Position=UDim2.new(0,14,0,190)
+	bhopLbl.BackgroundTransparency=1; bhopLbl.Text="BHOP"; bhopLbl.TextColor3=Color3.fromRGB(60,60,60); bhopLbl.TextSize=10; bhopLbl.Font=Enum.Font.GothamBold; bhopLbl.TextXAlignment=Enum.TextXAlignment.Left
+
+	local bhopSpeedLbl=Instance.new("TextLabel",contentArea); bhopSpeedLbl.Size=UDim2.new(1,-28,0,14); bhopSpeedLbl.Position=UDim2.new(0,14,0,210)
+	bhopSpeedLbl.BackgroundTransparency=1; bhopSpeedLbl.Text="Скорость: "..bhopSpeed; bhopSpeedLbl.TextColor3=Color3.fromRGB(100,100,100); bhopSpeedLbl.TextSize=11; bhopSpeedLbl.Font=Enum.Font.Gotham; bhopSpeedLbl.TextXAlignment=Enum.TextXAlignment.Left
+
+	local bhTrack=Instance.new("Frame",contentArea); bhTrack.Size=UDim2.new(1,-28,0,6); bhTrack.Position=UDim2.new(0,14,0,228)
+	bhTrack.BackgroundColor3=Color3.fromRGB(36,36,36); bhTrack.BorderSizePixel=0; Instance.new("UICorner",bhTrack).CornerRadius=UDim.new(1,0)
+	local bhR=(bhopSpeed-20)/(200-20)
+	local bhFill=Instance.new("Frame",bhTrack); bhFill.Size=UDim2.new(bhR,0,1,0); bhFill.BackgroundColor3=Color3.fromRGB(255,255,255); bhFill.BorderSizePixel=0; Instance.new("UICorner",bhFill).CornerRadius=UDim.new(1,0)
+	local bhHandle=Instance.new("TextButton",bhTrack); bhHandle.Size=UDim2.new(0,16,0,16); bhHandle.Position=UDim2.new(bhR,-8,0.5,-8)
+	bhHandle.BackgroundColor3=Color3.fromRGB(255,255,255); bhHandle.BorderSizePixel=0; bhHandle.Text=""; bhHandle.AutoButtonColor=false; bhHandle.ZIndex=5
+	Instance.new("UICorner",bhHandle).CornerRadius=UDim.new(1,0)
+	local bhDrag=false
+	bhHandle.MouseButton1Down:Connect(function() bhDrag=true end)
+	UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then bhDrag=false end end)
+	UserInputService.InputChanged:Connect(function(i)
+		if bhDrag and i.UserInputType==Enum.UserInputType.MouseMovement then
+			local rel=math.clamp((i.Position.X-bhTrack.AbsolutePosition.X)/bhTrack.AbsoluteSize.X,0,1)
+			bhopSpeed=math.floor(20+rel*(200-20)); bhFill.Size=UDim2.new(rel,0,1,0); bhHandle.Position=UDim2.new(rel,-8,0.5,-8)
+			bhopSpeedLbl.Text="Скорость: "..bhopSpeed
+		end
+	end)
+
+	makeToggleCard(contentArea,"Bhop","Автоматический прыжок при приземлении",246,bhopActive,function(v)
+		bhopActive=v
+		if bhopConn then bhopConn:Disconnect(); bhopConn=nil end
+		if v then
+			bhopConn=RunService.Heartbeat:Connect(function()
+				local char=player.Character; if not char then return end
+				local hum=char:FindFirstChildOfClass("Humanoid"); if not hum then return end
+				local hrp=char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+				if hum.FloorMaterial~=Enum.Material.Air then
+					hum.WalkSpeed=bhopSpeed
+					hrp:ApplyImpulse(Vector3.new(0,hum.JumpPower*hrp.AssemblyMass*0.7,0))
+				end
+			end)
+		else
+			local char=player.Character; if char then local hum=char:FindFirstChildOfClass("Humanoid"); if hum then hum.WalkSpeed=16 end end
+		end
+	end)
+
+	divLine(contentArea,308)
+
+	-- ── TAB (Pallet Spawn) ──
+	local tabLbl=Instance.new("TextLabel",contentArea); tabLbl.Size=UDim2.new(1,-28,0,16); tabLbl.Position=UDim2.new(0,14,0,318)
+	tabLbl.BackgroundTransparency=1; tabLbl.Text="TAB  (спавн доски под игроком)"; tabLbl.TextColor3=Color3.fromRGB(60,60,60); tabLbl.TextSize=10; tabLbl.Font=Enum.Font.GothamBold; tabLbl.TextXAlignment=Enum.TextXAlignment.Left
+
+	local tabStatus=Instance.new("TextLabel",contentArea); tabStatus.Size=UDim2.new(1,-28,0,14); tabStatus.Position=UDim2.new(0,14,0,338)
+	tabStatus.BackgroundTransparency=1; tabStatus.Text="Нажми кнопку — доска спавнится под тобой"; tabStatus.TextColor3=Color3.fromRGB(60,60,60); tabStatus.TextSize=11; tabStatus.Font=Enum.Font.Gotham; tabStatus.TextXAlignment=Enum.TextXAlignment.Left
+
+	local tabBtn=Instance.new("TextButton",contentArea); tabBtn.Size=UDim2.new(1,-28,0,44); tabBtn.Position=UDim2.new(0,14,0,358)
+	tabBtn.BackgroundColor3=Color3.fromRGB(255,255,255); tabBtn.BorderSizePixel=0; tabBtn.Text="СПАВН PALLET"
+	tabBtn.TextColor3=Color3.fromRGB(0,0,0); tabBtn.TextSize=14; tabBtn.Font=Enum.Font.GothamBold; tabBtn.AutoButtonColor=false
+	Instance.new("UICorner",tabBtn).CornerRadius=UDim.new(0,10)
+	tabBtn.MouseEnter:Connect(function() TweenService:Create(tabBtn,TIF,{BackgroundColor3=Color3.fromRGB(215,215,215)}):Play() end)
+	tabBtn.MouseLeave:Connect(function() TweenService:Create(tabBtn,TIF,{BackgroundColor3=Color3.fromRGB(255,255,255)}):Play() end)
+	tabBtn.MouseButton1Click:Connect(function()
+		local char=player.Character; if not char then return end
+		local hrp=char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+		-- Ищем Pallet в workspace.Pallets
+		local ok,err=pcall(function()
+			local pallets=workspace:FindFirstChild("Pallets")
+			if not pallets then
+				-- Пробуем найти в ReplicatedStorage или напрямую в workspace
+				pallets=workspace; 
+			end
+			local template=pallets:FindFirstChild("PalletLightBrown",true)
+			if template then
+				local clone=template:Clone()
+				clone.Parent=workspace
+				-- Размещаем под игроком
+				if clone:IsA("Model") and clone.PrimaryPart then
+					clone:SetPrimaryPartCFrame(CFrame.new(hrp.Position-Vector3.new(0,3,0)))
+				elseif clone:IsA("BasePart") then
+					clone.CFrame=CFrame.new(hrp.Position-Vector3.new(0,3,0))
+				else
+					for _,p in ipairs(clone:GetDescendants()) do
+						if p:IsA("BasePart") then p.CFrame=CFrame.new(hrp.Position-Vector3.new(0,3,0)); break end
+					end
+				end
+				tabStatus.Text="Доска спавнена под тобой!"; tabStatus.TextColor3=Color3.fromRGB(80,220,100)
+			else
+				tabStatus.Text="PalletLightBrown не найдена в workspace"; tabStatus.TextColor3=Color3.fromRGB(255,80,80)
+			end
+		end)
+		if not ok then tabStatus.Text="Ошибка: "..tostring(err); tabStatus.TextColor3=Color3.fromRGB(255,80,80) end
+	end)
+
+	-- Авто по Tab клавише
+	local tabAutoEnabled=false
+	makeToggleCard(contentArea,"Tab автокнопка","Tab клавиша спавнит доску автоматически",412,false,function(v)
+		tabAutoEnabled=v
+		tabStatus.Text=v and "Tab активен — нажми Tab в игре" or "Tab выключен"
+		tabStatus.TextColor3=v and Color3.fromRGB(80,220,100) or Color3.fromRGB(60,60,60)
+	end)
+
+	-- Tab polling
+	getgenv().TabKeyDown=false
+	task.spawn(function()
+		while task.wait(0.05) do
+			if tabAutoEnabled and UserInputService:IsKeyDown(Enum.KeyCode.Tab) then
+				if not getgenv().TabKeyDown then
+					getgenv().TabKeyDown=true
+					local char=player.Character
+					if char then
+						local hrp=char:FindFirstChild("HumanoidRootPart")
+						if hrp then
+							pcall(function()
+								local template=(workspace:FindFirstChild("Pallets") or workspace):FindFirstChild("PalletLightBrown",true)
+								if template then
+									local clone=template:Clone(); clone.Parent=workspace
+									if clone:IsA("Model") and clone.PrimaryPart then
+										clone:SetPrimaryPartCFrame(CFrame.new(hrp.Position-Vector3.new(0,3,0)))
+									else
+										for _,p in ipairs(clone:GetDescendants()) do if p:IsA("BasePart") then p.CFrame=CFrame.new(hrp.Position-Vector3.new(0,3,0)); break end end
+									end
+								end
+							end)
+						end
+					end
+					task.wait(0.3); getgenv().TabKeyDown=false
+				end
+			end
+		end
+	end)
+end
+
+-- ══════════════════════════════
+--   HITBOX
+-- ══════════════════════════════
+
+local hitboxActive  = false
+local hitboxSize    = 10
+local hitboxColor   = Color3.fromRGB(255,50,50)
+local hitboxTrans   = 0.5
+local hitboxParts   = {}
+
+local function removeAllHitboxes()
+	for _,p in pairs(hitboxParts) do pcall(function() p:Destroy() end) end
+	hitboxParts={}
+end
+
+local function applyHitboxes()
+	removeAllHitboxes()
+	if not hitboxActive then return end
+	for _,p in ipairs(Players:GetPlayers()) do
+		if p~=player and p.Character then
+			local hrp=p.Character:FindFirstChild("HumanoidRootPart")
+			if hrp then
+				local box=Instance.new("Part")
+				box.Name="VibeHitbox_"..p.Name
+				box.Size=Vector3.new(hitboxSize,hitboxSize,hitboxSize)
+				box.Transparency=hitboxTrans
+				box.Color=hitboxColor
+				box.Material=Enum.Material.Neon
+				box.CanCollide=false
+				box.Anchored=false
+				box.CFrame=hrp.CFrame
+				box.Parent=workspace
+				-- Крепим к hrp через Weld
+				local weld=Instance.new("WeldConstraint")
+				weld.Part0=box; weld.Part1=hrp; weld.Parent=box
+				hitboxParts[p.Name]=box
+			end
+		end
+	end
+end
+
+local function buildHitboxPage()
+	clearContent(); contentArea.CanvasSize=UDim2.new(0,0,0,560)
+	hdr(contentArea,"HITBOX","Расширенные хитбоксы игроков",14); divLine(contentArea,55)
+
+	makeToggleCard(contentArea,"Hitbox включить","Показывает и расширяет хитбоксы",64,hitboxActive,function(v)
+		hitboxActive=v; applyHitboxes()
+	end)
+
+	-- Размер хитбокса
+	local szLbl=Instance.new("TextLabel",contentArea); szLbl.Size=UDim2.new(1,-28,0,16); szLbl.Position=UDim2.new(0,14,0,130)
+	szLbl.BackgroundTransparency=1; szLbl.Text="РАЗМЕР ХИТБОКСА"; szLbl.TextColor3=Color3.fromRGB(60,60,60); szLbl.TextSize=10; szLbl.Font=Enum.Font.GothamBold; szLbl.TextXAlignment=Enum.TextXAlignment.Left
+
+	local sizeCard=Instance.new("Frame",contentArea); sizeCard.Size=UDim2.new(1,-28,0,56); sizeCard.Position=UDim2.new(0,14,0,150)
+	sizeCard.BackgroundColor3=Color3.fromRGB(14,14,14); sizeCard.BorderSizePixel=0; Instance.new("UICorner",sizeCard).CornerRadius=UDim.new(0,10); Instance.new("UIStroke",sizeCard).Color=Color3.fromRGB(30,30,30)
+	local sizeValLbl=Instance.new("TextLabel",sizeCard); sizeValLbl.Size=UDim2.new(0,50,0,18); sizeValLbl.Position=UDim2.new(1,-62,0,8); sizeValLbl.BackgroundTransparency=1; sizeValLbl.Text=tostring(hitboxSize).." ст"; sizeValLbl.TextColor3=Color3.fromRGB(255,255,255); sizeValLbl.TextSize=13; sizeValLbl.Font=Enum.Font.GothamBold; sizeValLbl.TextXAlignment=Enum.TextXAlignment.Right
+	local stl2=Instance.new("TextLabel",sizeCard); stl2.Size=UDim2.new(1,-80,0,18); stl2.Position=UDim2.new(0,12,0,8); stl2.BackgroundTransparency=1; stl2.Text="Размер хитбокса"; stl2.TextColor3=Color3.fromRGB(200,200,200); stl2.TextSize=13; stl2.Font=Enum.Font.GothamSemibold; stl2.TextXAlignment=Enum.TextXAlignment.Left
+	local szTrack=Instance.new("Frame",sizeCard); szTrack.Size=UDim2.new(1,-24,0,6); szTrack.Position=UDim2.new(0,12,0,40); szTrack.BackgroundColor3=Color3.fromRGB(36,36,36); szTrack.BorderSizePixel=0; Instance.new("UICorner",szTrack).CornerRadius=UDim.new(1,0)
+	local szR=(hitboxSize-3)/(50-3)
+	local szFill=Instance.new("Frame",szTrack); szFill.Size=UDim2.new(szR,0,1,0); szFill.BackgroundColor3=Color3.fromRGB(255,255,255); szFill.BorderSizePixel=0; Instance.new("UICorner",szFill).CornerRadius=UDim.new(1,0)
+	local szHandle=Instance.new("TextButton",szTrack); szHandle.Size=UDim2.new(0,16,0,16); szHandle.Position=UDim2.new(szR,-8,0.5,-8); szHandle.BackgroundColor3=Color3.fromRGB(255,255,255); szHandle.BorderSizePixel=0; szHandle.Text=""; szHandle.AutoButtonColor=false; szHandle.ZIndex=5
+	Instance.new("UICorner",szHandle).CornerRadius=UDim.new(1,0)
+	local szDrag=false
+	szHandle.MouseButton1Down:Connect(function() szDrag=true end)
+	UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then szDrag=false end end)
+	UserInputService.InputChanged:Connect(function(i)
+		if szDrag and i.UserInputType==Enum.UserInputType.MouseMovement then
+			local rel=math.clamp((i.Position.X-szTrack.AbsolutePosition.X)/szTrack.AbsoluteSize.X,0,1)
+			hitboxSize=math.floor(3+rel*(50-3)); szFill.Size=UDim2.new(rel,0,1,0); szHandle.Position=UDim2.new(rel,-8,0.5,-8)
+			sizeValLbl.Text=tostring(hitboxSize).." ст"
+			-- Обновляем живые хитбоксы
+			for _,bp in pairs(hitboxParts) do pcall(function() bp.Size=Vector3.new(hitboxSize,hitboxSize,hitboxSize) end) end
+		end
+	end)
+
+	-- Быстрые размеры
+	local szPresets={{5,"Мал"},{10,"Норм"},{20,"Большой"},{40,"Огромный"}}
+	for i,sp in ipairs(szPresets) do
+		local pb=Instance.new("TextButton",contentArea); pb.Size=UDim2.new(0,118,0,34); pb.Position=UDim2.new(0,14+(i-1)%2*136,0,216+math.floor((i-1)/2)*42)
+		pb.BackgroundColor3=Color3.fromRGB(16,16,16); pb.BorderSizePixel=0; pb.Text=sp[2].." ("..sp[1]..")"; pb.TextColor3=Color3.fromRGB(190,190,190); pb.TextSize=12; pb.Font=Enum.Font.GothamSemibold; pb.AutoButtonColor=false
+		Instance.new("UICorner",pb).CornerRadius=UDim.new(0,9); Instance.new("UIStroke",pb).Color=Color3.fromRGB(30,30,30)
+		pb.MouseButton1Click:Connect(function()
+			hitboxSize=sp[1]; sizeValLbl.Text=tostring(sp[1]).." ст"
+			local rel=(sp[1]-3)/(50-3); szFill.Size=UDim2.new(math.clamp(rel,0,1),0,1,0); szHandle.Position=UDim2.new(math.clamp(rel,0,1),-8,0.5,-8)
+			for _,bp in pairs(hitboxParts) do pcall(function() bp.Size=Vector3.new(sp[1],sp[1],sp[1]) end) end
+		end)
+		pb.MouseEnter:Connect(function() TweenService:Create(pb,TIF,{BackgroundColor3=Color3.fromRGB(26,26,26)}):Play() end)
+		pb.MouseLeave:Connect(function() TweenService:Create(pb,TIF,{BackgroundColor3=Color3.fromRGB(16,16,16)}):Play() end)
+	end
+
+	-- Прозрачность хитбокса
+	local trLbl=Instance.new("TextLabel",contentArea); trLbl.Size=UDim2.new(1,-28,0,16); trLbl.Position=UDim2.new(0,14,0,308)
+	trLbl.BackgroundTransparency=1; trLbl.Text="ПРОЗРАЧНОСТЬ"; trLbl.TextColor3=Color3.fromRGB(60,60,60); trLbl.TextSize=10; trLbl.Font=Enum.Font.GothamBold; trLbl.TextXAlignment=Enum.TextXAlignment.Left
+	local trPresets={{0,"Виден"},{0.5,"Норм"},{0.85,"Призрак"},{1,"Невидим"}}
+	for i,tp in ipairs(trPresets) do
+		local pb=Instance.new("TextButton",contentArea); pb.Size=UDim2.new(0,118,0,34); pb.Position=UDim2.new(0,14+(i-1)%2*136,0,328+math.floor((i-1)/2)*42)
+		pb.BackgroundColor3=Color3.fromRGB(16,16,16); pb.BorderSizePixel=0; pb.Text=tp[2]; pb.TextColor3=Color3.fromRGB(190,190,190); pb.TextSize=12; pb.Font=Enum.Font.GothamSemibold; pb.AutoButtonColor=false
+		Instance.new("UICorner",pb).CornerRadius=UDim.new(0,9); Instance.new("UIStroke",pb).Color=Color3.fromRGB(30,30,30)
+		pb.MouseButton1Click:Connect(function()
+			hitboxTrans=tp[1]; for _,bp in pairs(hitboxParts) do pcall(function() bp.Transparency=tp[1] end) end
+		end)
+		pb.MouseEnter:Connect(function() TweenService:Create(pb,TIF,{BackgroundColor3=Color3.fromRGB(26,26,26)}):Play() end)
+		pb.MouseLeave:Connect(function() TweenService:Create(pb,TIF,{BackgroundColor3=Color3.fromRGB(16,16,16)}):Play() end)
+	end
+
+	-- Цвет хитбокса
+	local colLbl=Instance.new("TextLabel",contentArea); colLbl.Size=UDim2.new(1,-28,0,16); colLbl.Position=UDim2.new(0,14,0,418)
+	colLbl.BackgroundTransparency=1; colLbl.Text="ЦВЕТ ХИТБОКСА"; colLbl.TextColor3=Color3.fromRGB(60,60,60); colLbl.TextSize=10; colLbl.Font=Enum.Font.GothamBold; colLbl.TextXAlignment=Enum.TextXAlignment.Left
+	local hbColors={{"Красный",Color3.fromRGB(255,50,50)},{"Синий",Color3.fromRGB(50,120,255)},{"Зелёный",Color3.fromRGB(50,220,80)},{"Жёлтый",Color3.fromRGB(255,215,0)},{"Фиолет",Color3.fromRGB(180,50,255)},{"Белый",Color3.fromRGB(255,255,255)}}
+	for i,hc in ipairs(hbColors) do
+		local cb=Instance.new("TextButton",contentArea); cb.Size=UDim2.new(0,88,0,32); cb.Position=UDim2.new(0,14+(i-1)%3*100,0,438+math.floor((i-1)/3)*40)
+		cb.BackgroundColor3=Color3.fromRGB(14,14,14); cb.BorderSizePixel=0; cb.Text=hc[1]; cb.TextColor3=Color3.fromRGB(185,185,185); cb.TextSize=12; cb.Font=Enum.Font.GothamSemibold; cb.AutoButtonColor=false
+		Instance.new("UICorner",cb).CornerRadius=UDim.new(0,8)
+		local stripe=Instance.new("Frame",cb); stripe.Size=UDim2.new(0,3,0.6,0); stripe.Position=UDim2.new(0,0,0.2,0); stripe.BackgroundColor3=hc[2]; stripe.BorderSizePixel=0; Instance.new("UICorner",stripe).CornerRadius=UDim.new(1,0)
+		cb.MouseButton1Click:Connect(function()
+			hitboxColor=hc[2]; for _,bp in pairs(hitboxParts) do pcall(function() bp.Color=hc[2] end) end
+		end)
+		cb.MouseEnter:Connect(function() TweenService:Create(cb,TIF,{BackgroundColor3=Color3.fromRGB(22,22,22)}):Play() end)
+		cb.MouseLeave:Connect(function() TweenService:Create(cb,TIF,{BackgroundColor3=Color3.fromRGB(14,14,14)}):Play() end)
+	end
+
+	contentArea.CanvasSize=UDim2.new(0,0,0,438+math.ceil(#hbColors/3)*40+20)
+
+	-- Автообновление хитбоксов при входе игроков
+	Players.PlayerAdded:Connect(function(p)
+		if not hitboxActive then return end
+		task.wait(2); applyHitboxes()
+	end)
+	Players.PlayerRemoving:Connect(function(p)
+		if hitboxParts[p.Name] then pcall(function() hitboxParts[p.Name]:Destroy() end); hitboxParts[p.Name]=nil end
+	end)
+end
+
+-- ══════════════════════════════
 --   ВЫБОР ВКЛАДКИ
 -- ══════════════════════════════
 
@@ -1071,6 +1453,8 @@ btnEsp.MouseButton1Click:Connect(function()      selectTab(btnEsp,      buildEsp
 btnNoclip.MouseButton1Click:Connect(function()   selectTab(btnNoclip,   buildNoclipPage) end)
 btnShader.MouseButton1Click:Connect(function()   selectTab(btnShader,   buildShaderPage) end)
 btnParticle.MouseButton1Click:Connect(function() selectTab(btnParticle, buildParticlePage) end)
+btnHVH.MouseButton1Click:Connect(function()      selectTab(btnHVH,      buildHVHPage) end)
+btnHitbox.MouseButton1Click:Connect(function()   selectTab(btnHitbox,   buildHitboxPage) end)
 
 selectTab(btnSky, buildSkyPage)
 
@@ -1107,9 +1491,9 @@ end)
 local function openMenu()
 	menuOpen=true; unlockMouse()
 	mainFrame.Visible=true; mainFrame.BackgroundTransparency=1
-	mainFrame.Size=UDim2.new(0,690,0,530); mainFrame.Position=UDim2.new(0.5,-345,0.5,-270)
+	mainFrame.Size=UDim2.new(0.52,0,0.74,0); mainFrame.Position=UDim2.new(0.24,0,0.13,0)
 	TweenService:Create(mainFrame,TweenInfo.new(0.28,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{
-		Size=UDim2.new(0,720,0,560), Position=UDim2.new(0.5,-360,0.5,-280), BackgroundTransparency=0.06
+		Size=UDim2.new(0.55,0,0.78,0), Position=UDim2.new(0.225,0,0.11,0), BackgroundTransparency=0.06
 	}):Play()
 	TweenService:Create(vibeBlur,TweenInfo.new(0.28),{Size=18}):Play()
 end
@@ -1117,7 +1501,7 @@ end
 local function closeMenu()
 	menuOpen=false
 	TweenService:Create(mainFrame,TweenInfo.new(0.2,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{
-		Size=UDim2.new(0,690,0,530), Position=UDim2.new(0.5,-345,0.5,-265), BackgroundTransparency=1
+		Size=UDim2.new(0.52,0,0.74,0), Position=UDim2.new(0.24,0,0.14,0), BackgroundTransparency=1
 	}):Play()
 	TweenService:Create(vibeBlur,TweenInfo.new(0.2),{Size=0}):Play()
 	task.delay(0.22,function() mainFrame.Visible=false; lockMouseBack() end)
@@ -1166,19 +1550,38 @@ RunService.Heartbeat:Connect(function()
 	-- Particles следуют за персонажем (уже прикреплены к hrp, автоматически)
 end)
 
--- T клавиша — Locker
-UserInputService.InputBegan:Connect(function(inp,gpe)
-	if gpe then return end
-	if inp.KeyCode==Enum.KeyCode.T then
-		lockerActive=not lockerActive
-		local char=player.Character; if not char then return end
-		local hrp=char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
-		if lockerActive then
-			if not lockerBV or not lockerBV.Parent then lockerBV=Instance.new("BodyVelocity",hrp); lockerBV.MaxForce=Vector3.new(1e5,1e5,1e5); lockerBV.Velocity=Vector3.new(0,-6,0) end
-			if not lockerBG or not lockerBG.Parent then lockerBG=Instance.new("BodyGyro",hrp); lockerBG.MaxTorque=Vector3.new(1e5,1e5,1e5); lockerBG.D=300; lockerBG.CFrame=CFrame.new(hrp.Position) end
-		else
-			if lockerBV and lockerBV.Parent then lockerBV:Destroy(); lockerBV=nil end
-			if lockerBG and lockerBG.Parent then lockerBG:Destroy(); lockerBG=nil end
+-- T клавиша — Locker (polling как B, надёжно работает в FPS играх)
+getgenv().LockerKeyDown = false
+task.spawn(function()
+	while task.wait(0.05) do
+		if UserInputService:IsKeyDown(Enum.KeyCode.T) then
+			if not getgenv().LockerKeyDown then
+				getgenv().LockerKeyDown = true
+				lockerActive = not lockerActive
+				local char=player.Character
+				if char then
+					local hrp=char:FindFirstChild("HumanoidRootPart")
+					if hrp then
+						if lockerActive then
+							if not lockerBV or not lockerBV.Parent then
+								lockerBV=Instance.new("BodyVelocity",hrp)
+								lockerBV.MaxForce=Vector3.new(1e5,1e5,1e5)
+								lockerBV.Velocity=Vector3.new(0,-6,0)
+							end
+							if not lockerBG or not lockerBG.Parent then
+								lockerBG=Instance.new("BodyGyro",hrp)
+								lockerBG.MaxTorque=Vector3.new(1e5,1e5,1e5)
+								lockerBG.D=300; lockerBG.CFrame=CFrame.new(hrp.Position)
+							end
+						else
+							if lockerBV and lockerBV.Parent then lockerBV:Destroy(); lockerBV=nil end
+							if lockerBG and lockerBG.Parent then lockerBG:Destroy(); lockerBG=nil end
+						end
+					end
+				end
+				task.wait(0.3)
+				getgenv().LockerKeyDown = false
+			end
 		end
 	end
 end)
