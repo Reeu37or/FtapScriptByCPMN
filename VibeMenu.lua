@@ -34,6 +34,13 @@ local particleEmitters = {}
 local particleColor1 = Color3.fromRGB(255,255,255)
 local particleColor2 = Color3.fromRGB(255,200,100)
 local currentParticle = nil
+local registeredNick = nil  -- nil = не зарегистрирован
+
+-- Таблица разрешённых ников → папка с досками
+local NICK_FOLDERS = {
+	["Dana_mammv"]   = "Dana_mammvSpawnedInToys",
+	["alihanboq4"]   = "alihanboq4SpawnedInToys",
+}
 
 -- BLUR
 local vibeBlur = Instance.new("BlurEffect")
@@ -44,6 +51,140 @@ local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "VibeMenu"; screenGui.ResetOnSpawn = false
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.IgnoreGuiInset = true; screenGui.Parent = player.PlayerGui
+
+-- ══════════════════════════════
+--   ЭКРАН РЕГИСТРАЦИИ
+-- ══════════════════════════════
+local regScreen = Instance.new("Frame",screenGui)
+regScreen.Size = UDim2.new(1,0,1,0)
+regScreen.BackgroundColor3 = Color3.fromRGB(0,0,0)
+regScreen.BackgroundTransparency = 0.35
+regScreen.BorderSizePixel = 0
+regScreen.ZIndex = 100
+
+-- Карточка по центру
+local regCard = Instance.new("Frame",regScreen)
+regCard.Size = UDim2.new(0,380,0,280)
+regCard.Position = UDim2.new(0.5,-190,0.5,-140)
+regCard.BackgroundColor3 = Color3.fromRGB(8,8,8)
+regCard.BackgroundTransparency = 0.05
+regCard.BorderSizePixel = 0; regCard.ZIndex = 101
+Instance.new("UICorner",regCard).CornerRadius = UDim.new(0,18)
+local rcs = Instance.new("UIStroke",regCard); rcs.Color=Color3.fromRGB(255,255,255); rcs.Thickness=1; rcs.Transparency=0.8
+
+-- Лого / заголовок
+local regLogo = Instance.new("Frame",regCard)
+regLogo.Size=UDim2.new(0,3,0,32); regLogo.Position=UDim2.new(0,20,0,22)
+regLogo.BackgroundColor3=Color3.fromRGB(255,255,255); regLogo.BorderSizePixel=0
+Instance.new("UICorner",regLogo).CornerRadius=UDim.new(1,0)
+
+local regTitle = Instance.new("TextLabel",regCard)
+regTitle.Size=UDim2.new(1,-30,0,28); regTitle.Position=UDim2.new(0,30,0,20)
+regTitle.BackgroundTransparency=1; regTitle.Text="VIBE MENU"
+regTitle.TextColor3=Color3.fromRGB(255,255,255); regTitle.TextSize=20
+regTitle.Font=Enum.Font.GothamBold; regTitle.TextXAlignment=Enum.TextXAlignment.Left; regTitle.ZIndex=102
+
+local regSub = Instance.new("TextLabel",regCard)
+regSub.Size=UDim2.new(1,-30,0,16); regSub.Position=UDim2.new(0,31,0,50)
+regSub.BackgroundTransparency=1; regSub.Text="Введи свой никнейм для входа"
+regSub.TextColor3=Color3.fromRGB(60,60,60); regSub.TextSize=12
+regSub.Font=Enum.Font.Gotham; regSub.TextXAlignment=Enum.TextXAlignment.Left; regSub.ZIndex=102
+
+-- Разделитель
+local regDiv = Instance.new("Frame",regCard)
+regDiv.Size=UDim2.new(1,-40,0,1); regDiv.Position=UDim2.new(0,20,0,76)
+regDiv.BackgroundColor3=Color3.fromRGB(28,28,28); regDiv.BorderSizePixel=0
+
+-- Поле ввода
+local regInputBg = Instance.new("Frame",regCard)
+regInputBg.Size=UDim2.new(1,-40,0,48); regInputBg.Position=UDim2.new(0,20,0,90)
+regInputBg.BackgroundColor3=Color3.fromRGB(14,14,14); regInputBg.BorderSizePixel=0
+Instance.new("UICorner",regInputBg).CornerRadius=UDim.new(0,12)
+local regInputStroke = Instance.new("UIStroke",regInputBg); regInputStroke.Color=Color3.fromRGB(45,45,45); regInputStroke.Thickness=1
+
+local regPlaceholder = Instance.new("TextLabel",regInputBg)
+regPlaceholder.Size=UDim2.new(1,-20,1,0); regPlaceholder.Position=UDim2.new(0,14,0,0)
+regPlaceholder.BackgroundTransparency=1; regPlaceholder.Text="Никнейм..."
+regPlaceholder.TextColor3=Color3.fromRGB(45,45,45); regPlaceholder.TextSize=15; regPlaceholder.Font=Enum.Font.Gotham
+regPlaceholder.TextXAlignment=Enum.TextXAlignment.Left; regPlaceholder.ZIndex=102
+
+local regInput = Instance.new("TextBox",regInputBg)
+regInput.Size=UDim2.new(1,-20,1,0); regInput.Position=UDim2.new(0,14,0,0)
+regInput.BackgroundTransparency=1; regInput.BorderSizePixel=0; regInput.Text=""
+regInput.TextColor3=Color3.fromRGB(255,255,255); regInput.TextSize=15; regInput.Font=Enum.Font.GothamSemibold
+regInput.TextXAlignment=Enum.TextXAlignment.Left; regInput.ClearTextOnFocus=false; regInput.PlaceholderText=""; regInput.ZIndex=103
+
+regInput:GetPropertyChangedSignal("Text"):Connect(function()
+	regPlaceholder.Visible = regInput.Text==""
+end)
+regInput.Focused:Connect(function()
+	TweenService:Create(regInputStroke,TweenInfo.new(0.15),{Color=Color3.fromRGB(100,100,100)}):Play()
+end)
+regInput.FocusLost:Connect(function()
+	TweenService:Create(regInputStroke,TweenInfo.new(0.15),{Color=Color3.fromRGB(45,45,45)}):Play()
+end)
+
+-- Статус ошибки
+local regError = Instance.new("TextLabel",regCard)
+regError.Size=UDim2.new(1,-40,0,16); regError.Position=UDim2.new(0,20,0,144)
+regError.BackgroundTransparency=1; regError.Text=""
+regError.TextColor3=Color3.fromRGB(255,70,70); regError.TextSize=11; regError.Font=Enum.Font.Gotham
+regError.TextXAlignment=Enum.TextXAlignment.Left; regError.ZIndex=102
+
+-- Кнопка входа
+local regBtn = Instance.new("TextButton",regCard)
+regBtn.Size=UDim2.new(1,-40,0,48); regBtn.Position=UDim2.new(0,20,0,168)
+regBtn.BackgroundColor3=Color3.fromRGB(255,255,255); regBtn.BorderSizePixel=0
+regBtn.Text="ВОЙТИ"; regBtn.TextColor3=Color3.fromRGB(0,0,0)
+regBtn.TextSize=14; regBtn.Font=Enum.Font.GothamBold; regBtn.AutoButtonColor=false; regBtn.ZIndex=102
+Instance.new("UICorner",regBtn).CornerRadius=UDim.new(0,12)
+regBtn.MouseEnter:Connect(function() TweenService:Create(regBtn,TweenInfo.new(0.12),{BackgroundColor3=Color3.fromRGB(215,215,215)}):Play() end)
+regBtn.MouseLeave:Connect(function() TweenService:Create(regBtn,TweenInfo.new(0.12),{BackgroundColor3=Color3.fromRGB(255,255,255)}):Play() end)
+
+-- Подсказка снизу
+local regHint = Instance.new("TextLabel",regCard)
+regHint.Size=UDim2.new(1,-40,0,20); regHint.Position=UDim2.new(0,20,0,228)
+regHint.BackgroundTransparency=1; regHint.Text="Только для авторизованных пользователей"
+regHint.TextColor3=Color3.fromRGB(35,35,35); regHint.TextSize=10; regHint.Font=Enum.Font.Gotham
+regHint.TextXAlignment=Enum.TextXAlignment.Center; regHint.ZIndex=102
+
+-- Логика входа
+local function doLogin()
+	local nick = regInput.Text:match("^%s*(.-)%s*$") -- trim
+	if NICK_FOLDERS[nick] then
+		registeredNick = nick
+		regError.Text = ""
+		-- Плавная анимация исчезновения
+		TweenService:Create(regCard,TweenInfo.new(0.25,Enum.EasingStyle.Back,Enum.EasingDirection.In),{
+			Size=UDim2.new(0,340,0,240), Position=UDim2.new(0.5,-170,0.5,-130)
+		}):Play()
+		TweenService:Create(regScreen,TweenInfo.new(0.35,Enum.EasingStyle.Quad),{BackgroundTransparency=1}):Play()
+		task.delay(0.35,function()
+			regScreen.Visible=false
+			regScreen:Destroy()
+		end)
+		-- Показываем подсказку
+		local toast=Instance.new("TextLabel",screenGui)
+		toast.Size=UDim2.new(0,260,0,36); toast.Position=UDim2.new(0.5,-130,1,-60)
+		toast.BackgroundColor3=Color3.fromRGB(12,12,12); toast.BackgroundTransparency=0.2; toast.BorderSizePixel=0
+		toast.Text="Добро пожаловать, "..nick.."!  (B — открыть меню)"; toast.TextColor3=Color3.fromRGB(200,200,200)
+		toast.TextSize=11; toast.Font=Enum.Font.GothamSemibold; toast.ZIndex=99
+		Instance.new("UICorner",toast).CornerRadius=UDim.new(0,10)
+		TweenService:Create(toast,TweenInfo.new(0.3,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Position=UDim2.new(0.5,-130,1,-70)}):Play()
+		task.delay(3,function()
+			TweenService:Create(toast,TweenInfo.new(0.3),{Position=UDim2.new(0.5,-130,1,-40),BackgroundTransparency=1}):Play()
+			task.delay(0.35,function() toast:Destroy() end)
+		end)
+	else
+		regError.Text = "Никнейм не найден. Попробуй снова."
+		TweenService:Create(regCard,TweenInfo.new(0.05),{Position=UDim2.new(0.5,-195,0.5,-140)}):Play()
+		task.delay(0.05,function() TweenService:Create(regCard,TweenInfo.new(0.05),{Position=UDim2.new(0.5,-185,0.5,-140)}):Play() end)
+		task.delay(0.10,function() TweenService:Create(regCard,TweenInfo.new(0.05),{Position=UDim2.new(0.5,-190,0.5,-140)}):Play() end)
+	end
+end
+
+regBtn.MouseButton1Click:Connect(doLogin)
+regInput.FocusLost:Connect(function(enter) if enter then doLogin() end end)
 
 -- ГЛАВНЫЙ ФРЕЙМ (пол экрана)
 local mainFrame = Instance.new("Frame")
@@ -1211,7 +1352,56 @@ local function buildHVHPage()
 	tabLbl.BackgroundTransparency=1; tabLbl.Text="TAB  (спавн доски под игроком)"; tabLbl.TextColor3=Color3.fromRGB(60,60,60); tabLbl.TextSize=10; tabLbl.Font=Enum.Font.GothamBold; tabLbl.TextXAlignment=Enum.TextXAlignment.Left
 
 	local tabStatus=Instance.new("TextLabel",contentArea); tabStatus.Size=UDim2.new(1,-28,0,14); tabStatus.Position=UDim2.new(0,14,0,338)
-	tabStatus.BackgroundTransparency=1; tabStatus.Text="Нажми кнопку — доска спавнится под тобой"; tabStatus.TextColor3=Color3.fromRGB(60,60,60); tabStatus.TextSize=11; tabStatus.Font=Enum.Font.Gotham; tabStatus.TextXAlignment=Enum.TextXAlignment.Left
+	tabStatus.BackgroundTransparency=1; tabStatus.TextSize=11; tabStatus.Font=Enum.Font.Gotham; tabStatus.TextXAlignment=Enum.TextXAlignment.Left
+
+	-- Показываем из какой папки берёт текущий пользователь
+	if registeredNick and NICK_FOLDERS[registeredNick] then
+		tabStatus.Text="Папка: "..NICK_FOLDERS[registeredNick]; tabStatus.TextColor3=Color3.fromRGB(80,180,100)
+	else
+		tabStatus.Text="Сначала войди в систему"; tabStatus.TextColor3=Color3.fromRGB(255,80,80)
+	end
+
+	-- Функция спавна доски по нику
+	local function spawnPallet(statusLabel)
+		if not registeredNick then
+			if statusLabel then statusLabel.Text="Не авторизован!"; statusLabel.TextColor3=Color3.fromRGB(255,80,80) end
+			return
+		end
+		local folderName=NICK_FOLDERS[registeredNick]
+		if not folderName then
+			if statusLabel then statusLabel.Text="Папка не найдена для "..registeredNick; statusLabel.TextColor3=Color3.fromRGB(255,80,80) end
+			return
+		end
+		local char=player.Character; if not char then return end
+		local hrp=char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+		local ok,err=pcall(function()
+			-- Ищем папку игрока в workspace
+			local folder=workspace:FindFirstChild(folderName)
+			if not folder then error("Папка '"..folderName.."' не найдена в workspace") end
+			-- Ищем PalletLightBrown внутри папки
+			local template=folder:FindFirstChild("PalletLightBrown")
+			if not template then error("PalletLightBrown не найден в "..folderName) end
+			-- Клонируем и размещаем под игроком
+			local clone=template:Clone()
+			clone.Parent=folder -- кладём обратно в ту же папку как оригинал
+			-- Ставим позицию под игрока
+			if clone:IsA("Model") then
+				local prim=clone.PrimaryPart or clone:FindFirstChildWhichIsA("BasePart",true)
+				if prim then
+					clone:SetPrimaryPartCFrame(CFrame.new(hrp.Position-Vector3.new(0,3.5,0)))
+				end
+			elseif clone:IsA("BasePart") then
+				clone.CFrame=CFrame.new(hrp.Position-Vector3.new(0,3.5,0))
+			end
+			-- Обновляем PlayerValue если есть
+			local pv=clone:FindFirstChild("PlayerValue",true)
+			if pv and pv:IsA("StringValue") then pv.Value=registeredNick end
+			if statusLabel then statusLabel.Text="Доска из "..folderName.." спавнена!"; statusLabel.TextColor3=Color3.fromRGB(80,220,100) end
+		end)
+		if not ok then
+			if statusLabel then statusLabel.Text="Ошибка: "..tostring(err); statusLabel.TextColor3=Color3.fromRGB(255,80,80) end
+		end
+	end
 
 	local tabBtn=Instance.new("TextButton",contentArea); tabBtn.Size=UDim2.new(1,-28,0,44); tabBtn.Position=UDim2.new(0,14,0,358)
 	tabBtn.BackgroundColor3=Color3.fromRGB(255,255,255); tabBtn.BorderSizePixel=0; tabBtn.Text="СПАВН PALLET"
@@ -1219,71 +1409,25 @@ local function buildHVHPage()
 	Instance.new("UICorner",tabBtn).CornerRadius=UDim.new(0,10)
 	tabBtn.MouseEnter:Connect(function() TweenService:Create(tabBtn,TIF,{BackgroundColor3=Color3.fromRGB(215,215,215)}):Play() end)
 	tabBtn.MouseLeave:Connect(function() TweenService:Create(tabBtn,TIF,{BackgroundColor3=Color3.fromRGB(255,255,255)}):Play() end)
-	tabBtn.MouseButton1Click:Connect(function()
-		local char=player.Character; if not char then return end
-		local hrp=char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
-		-- Ищем Pallet в workspace.Pallets
-		local ok,err=pcall(function()
-			local pallets=workspace:FindFirstChild("Pallets")
-			if not pallets then
-				-- Пробуем найти в ReplicatedStorage или напрямую в workspace
-				pallets=workspace; 
-			end
-			local template=pallets:FindFirstChild("PalletLightBrown",true)
-			if template then
-				local clone=template:Clone()
-				clone.Parent=workspace
-				-- Размещаем под игроком
-				if clone:IsA("Model") and clone.PrimaryPart then
-					clone:SetPrimaryPartCFrame(CFrame.new(hrp.Position-Vector3.new(0,3,0)))
-				elseif clone:IsA("BasePart") then
-					clone.CFrame=CFrame.new(hrp.Position-Vector3.new(0,3,0))
-				else
-					for _,p in ipairs(clone:GetDescendants()) do
-						if p:IsA("BasePart") then p.CFrame=CFrame.new(hrp.Position-Vector3.new(0,3,0)); break end
-					end
-				end
-				tabStatus.Text="Доска спавнена под тобой!"; tabStatus.TextColor3=Color3.fromRGB(80,220,100)
-			else
-				tabStatus.Text="PalletLightBrown не найдена в workspace"; tabStatus.TextColor3=Color3.fromRGB(255,80,80)
-			end
-		end)
-		if not ok then tabStatus.Text="Ошибка: "..tostring(err); tabStatus.TextColor3=Color3.fromRGB(255,80,80) end
-	end)
+	tabBtn.MouseButton1Click:Connect(function() spawnPallet(tabStatus) end)
 
 	-- Авто по Tab клавише
 	local tabAutoEnabled=false
 	makeToggleCard(contentArea,"Tab автокнопка","Tab клавиша спавнит доску автоматически",412,false,function(v)
 		tabAutoEnabled=v
-		tabStatus.Text=v and "Tab активен — нажми Tab в игре" or "Tab выключен"
-		tabStatus.TextColor3=v and Color3.fromRGB(80,220,100) or Color3.fromRGB(60,60,60)
+		tabStatus.Text=v and ("Tab активен — папка: "..(NICK_FOLDERS[registeredNick] or "?")) or ("Папка: "..(NICK_FOLDERS[registeredNick] or "не авторизован"))
+		tabStatus.TextColor3=v and Color3.fromRGB(80,220,100) or Color3.fromRGB(80,180,100)
 	end)
 
 	-- Tab polling
 	getgenv().TabKeyDown=false
 	task.spawn(function()
-		while task.wait(0.05) do
+		while task.wait(0.04) do
 			if tabAutoEnabled and UserInputService:IsKeyDown(Enum.KeyCode.Tab) then
 				if not getgenv().TabKeyDown then
 					getgenv().TabKeyDown=true
-					local char=player.Character
-					if char then
-						local hrp=char:FindFirstChild("HumanoidRootPart")
-						if hrp then
-							pcall(function()
-								local template=(workspace:FindFirstChild("Pallets") or workspace):FindFirstChild("PalletLightBrown",true)
-								if template then
-									local clone=template:Clone(); clone.Parent=workspace
-									if clone:IsA("Model") and clone.PrimaryPart then
-										clone:SetPrimaryPartCFrame(CFrame.new(hrp.Position-Vector3.new(0,3,0)))
-									else
-										for _,p in ipairs(clone:GetDescendants()) do if p:IsA("BasePart") then p.CFrame=CFrame.new(hrp.Position-Vector3.new(0,3,0)); break end end
-									end
-								end
-							end)
-						end
-					end
-					task.wait(0.3); getgenv().TabKeyDown=false
+					spawnPallet(nil)
+					task.wait(0.25); getgenv().TabKeyDown=false
 				end
 			end
 		end
